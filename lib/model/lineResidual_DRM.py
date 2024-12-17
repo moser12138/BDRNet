@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.model_zoo as modelzoo
 from torch.nn import ReLU as relu
-# from torch.nn import PReLU as relu
 
 from .model_bloks import bn_mom
 from .model_bloks import BatchNorm2d
@@ -42,8 +41,6 @@ class RDown(nn.Module):
         self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False)
         self.bn2 = BatchNorm2d(out_channels, momentum=bn_mom)
 
-        # 调整输入张量的维度，以便能够与残差块的输出相加
-
         self.shortcut = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1, bias=False),
             BatchNorm2d(out_channels, momentum=bn_mom)
@@ -72,9 +69,9 @@ class ConCact(nn.Module):
             nn.Conv2d(in_channels=inchannels, out_channels=outchannels, kernel_size=1, stride=1, padding=0, bias=False),
         )
         self.Detail_2 = nn.Sequential(
-            nn.Conv2d(in_channels=inchannels, out_channels=outchannels, kernel_size=3, stride=2, padding=1, bias=False),  # 下采样
+            nn.Conv2d(in_channels=inchannels, out_channels=outchannels, kernel_size=3, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(outchannels),
-            nn.AvgPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=False)  # 下采样1/32
+            nn.AvgPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=False)  # 1/32
         )
         self.Main_1 = nn.Sequential(
             nn.Conv2d(in_channels=inchannels, out_channels=outchannels, kernel_size=3, stride=1, padding=1, bias=False),
@@ -134,7 +131,7 @@ class segmenthead(nn.Module):
 class Liner_Risidual(nn.Module):
     def __init__(self, n_classes, aux_mode='train'):
         super(Liner_Risidual, self).__init__()
-        self.aux_mode = aux_mode #模型类型
+        self.aux_mode = aux_mode 
         self.relu = relu(inplace=True)
         self.bn = BatchNorm2d(64, momentum=bn_mom)
 
@@ -152,11 +149,7 @@ class Liner_Risidual(nn.Module):
         self.s42 = Res_basic(128, 128)
         self.s41_ = Res_basic(64, 64)
 
-        self.compression4 = nn.Sequential(
-            nn.Conv2d(128, 64, kernel_size=1, bias=False),
-            BatchNorm2d(64, momentum=bn_mom),
-        )
-        # self.compression4 = DRM(64, 128)
+        self.compression4 = DRM(64, 128)
         self.compression4_res = nn.Sequential(
             nn.Conv2d(128, 64, kernel_size=1, bias=False),
             BatchNorm2d(64, momentum=bn_mom),
@@ -174,11 +167,8 @@ class Liner_Risidual(nn.Module):
         self.s51 = Res_downsample(128, 256)
         self.s52 = Res_basic(256, 256)
         self.s51_ = Res_basic(64, 64)
-        self.compression5 = nn.Sequential(
-            nn.Conv2d(256, 64, kernel_size=1, bias=False),
-            BatchNorm2d(64, momentum=bn_mom),
-        )
-        # self.compression5 = DRM(64, 256)
+
+        self.compression5 = DRM(64, 256)
         self.compression5_res = nn.Sequential(
             nn.Conv2d(256, 64, kernel_size=1, bias=False),
             BatchNorm2d(64, momentum=bn_mom),
@@ -205,10 +195,10 @@ class Liner_Risidual(nn.Module):
 
         self.concact = ConCact(64, 64, 32)
 
-        self.seghead = segmenthead(64, 128, n_classes, 1024, 1024) #city数据集
+        self.seghead = segmenthead(64, 128, n_classes, 1024, 1024) #city
 
         if self.aux_mode == 'train':
-            self.aux_loss = segmenthead(64, 128, n_classes, 1024, 1024)#city数据集
+            self.aux_loss = segmenthead(64, 128, n_classes, 1024, 1024)#city
 
     def forward(self, x):
         global aux
@@ -227,8 +217,7 @@ class Liner_Risidual(nn.Module):
         x, res = self.s41(x, res)
         x, res = self.s42(x, res)
 
-        middle = F.interpolate(self.compression4(x), size=[height_output, width_output], mode=inter_mode)
-        # middle = self.compression4(x_, x)
+        middle = self.compression4(x_, x)
         x = self.relu(x + self.down4(x_))
         x_ = self.relu(x_ + middle)
         if self.aux_mode == 'train':
@@ -243,8 +232,7 @@ class Liner_Risidual(nn.Module):
         x, res = self.s52(x, res)
         x_, res_ = self.s51_(x_, res_)
 
-        middle = F.interpolate(self.compression5(x), size=[height_output, width_output], mode=inter_mode)
-        # middle = self.compression5(x_, x)
+        middle = self.compression5(x_, x)
         x = self.relu(x + self.down5(x_))
         x_ = self.relu(x_ + middle)
 
@@ -258,7 +246,6 @@ class Liner_Risidual(nn.Module):
         x_ = self.s61_(x_, res_)
 
         # concat
-        # x = x_ + F.interpolate(x, size=[height_output, width_output], mode=inter_mode)
         x = self.concact(x_, x)
 
         logits = self.seghead(self.relu(self.bn(x)))
